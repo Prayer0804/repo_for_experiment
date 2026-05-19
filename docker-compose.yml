@@ -1,0 +1,7 @@
+services:
+  dashboard:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend/public:/usr/share/nginx/html:ro

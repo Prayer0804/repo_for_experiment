@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <title>实时交通流控大屏</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101318;
+        --panel: #171d24;
+        --line: #2d3742;
+        --text: #edf3f7;
+        --muted: #9fb0bf;
+        --red: #ef5b5b;
+        --amber: #f4be4f;
+        --green: #47d18c;
+        --blue: #57a6ff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Arial, "Microsoft YaHei", sans-serif;
+      }
+      header {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 22px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        letter-spacing: 0;
+      }
+      .sub, .status {
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .sub { margin-top: 5px; }
+      .status {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+      }
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--red);
+      }
+      .dot.on { background: var(--green); }
+      a {
+        color: var(--green);
+        text-decoration: none;
+      }
+      main {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr 1fr;
+        gap: 12px;
+        padding: 12px;
+      }
+      section {
+        min-height: 276px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 12px;
+      }
+      .wide { grid-column: span 2; }
+      h2 {
+        margin: 0 0 8px;
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .chart {
+        width: 100%;
+        height: 232px;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+      .metric {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        min-height: 86px;
+        background: #121922;
+      }
+      .metric .label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .metric .value {
+        margin-top: 8px;
+        font-size: 24px;
+        font-weight: 700;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      th, td {
+        padding: 8px 6px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        white-space: nowrap;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .tag {
+        display: inline-block;
+        min-width: 44px;
+        border-radius: 4px;
+        padding: 2px 6px;
+        text-align: center;
+        color: #161616;
+        font-weight: 700;
+      }
+      .severe { background: var(--red); }
+      .moderate { background: var(--amber); }
+      .slow { background: var(--blue); }
+      @media (max-width: 1050px) {
+        main { grid-template-columns: 1fr; }
+        .wide { grid-column: span 1; }
+        .cards { grid-template-columns: 1fr; }
+        th, td { white-space: normal; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>实时交通流控大屏</h1>
+        <div class="sub">Kafka 交通事件流 · Flink 滑动时间窗口 · 严重拥堵路段持续计算</div>
+      </div>
+      <div class="status"><a href="/offline.html">离线分析大屏</a><span id="dot" class="dot"></span><span id="status">正在连接实时 API</span></div>
+    </header>
+
+    <main>
+      <section class="wide">
+        <h2>实时概览</h2>
+        <div class="cards">
+          <div class="metric"><div class="label">当前严重拥堵告警数</div><div id="severeCount" class="value">0</div></div>
+          <div class="metric"><div class="label">最低平均速度</div><div id="minSpeed" class="value">-</div></div>
+          <div class="metric"><div class="label">最新窗口车辆数</div><div id="latestVehicles" class="value">0</div></div>
+        </div>
+      </section>
+      <section>
+        <h2>拥堵等级占比</h2>
+        <div id="severityChart" class="chart"></div>
+      </section>
+      <section class="wide">
+        <h2>拥堵路段排行</h2>
+        <div id="roadRankChart" class="chart"></div>
+      </section>
+      <section>
+        <h2>最新窗口速度趋势</h2>
+        <div id="speedTrendChart" class="chart"></div>
+      </section>
+      <section class="wide">
+        <h2>最新窗口告警</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>等级</th>
+              <th>路段</th>
+              <th>区域</th>
+              <th>平均速度</th>
+              <th>占有率</th>
+              <th>窗口</th>
+            </tr>
+          </thead>
+          <tbody id="alertRows"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const API_BASE = "http://localhost:8000";
+      const WS_URL = "ws://localhost:8000/ws/congestion";
+      const state = { alerts: [], speedTrend: [], lastTrendKey: "" };
+      const charts = {
+        severity: echarts.init(document.getElementById("severityChart")),
+        roads: echarts.init(document.getElementById("roadRankChart")),
+        speed: echarts.init(document.getElementById("speedTrendChart"))
+      };
+
+      function connectWebSocket() {
+        const ws = new WebSocket(WS_URL);
+        ws.onopen = () => setStatus(true, "实时连接已建立，轮询刷新中");
+        ws.onmessage = (event) => {
+          const payload = JSON.parse(event.data);
+          if (payload.alerts) {
+            mergeAlerts(payload.alerts);
+            render();
+          }
+        };
+        ws.onclose = () => {
+          setStatus(false, "WebSocket 断开，继续轮询并重连");
+          setTimeout(connectWebSocket, 3000);
+        };
+        ws.onerror = () => setStatus(false, "WebSocket 异常，继续轮询");
+      }
+
+      async function pollLatest() {
+        try {
+          const res = await fetch(`${API_BASE}/api/congestion/latest?ts=${Date.now()}`, { cache: "no-store" });
+          const payload = await res.json();
+          mergeAlerts(payload.alerts || []);
+          render();
+          const latest = newestAlert(state.alerts);
+          const windowText = latest ? `最新窗口 ${formatTime(latest.window_end)}` : "等待窗口";
+          setStatus(true, `${windowText}，刷新于 ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`);
+        } catch (error) {
+          setStatus(false, "等待实时 API 或 Flink 告警");
+        }
+      }
+
+      function mergeAlerts(alerts) {
+        if (!alerts.length) return;
+        const merged = [...alerts, ...state.alerts];
+        const seen = new Set();
+        state.alerts = merged
+          .filter((item) => {
+            const key = `${item.window_start}-${item.window_end}-${item.road_id}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          })
+          .sort(compareByRecency)
+          .slice(0, 100);
+
+        const latest = newestAlert(alerts);
+        if (!latest) return;
+        const trendKey = `${latest.window_start}-${latest.window_end}`;
+        if (trendKey !== state.lastTrendKey) {
+          state.lastTrendKey = trendKey;
+          state.speedTrend.unshift({
+            label: formatTime(latest.window_end),
+            value: Number(latest.avg_speed_kmh || 0)
+          });
+          state.speedTrend = state.speedTrend.slice(0, 30);
+        }
+      }
+
+      function render() {
+        const alerts = state.alerts;
+        const latest = newestAlert(alerts);
+        const severe = alerts.filter((item) => item.severity === "severe");
+        const minSpeed = alerts.length ? Math.min(...alerts.map((item) => Number(item.avg_speed_kmh || 999))) : null;
+        document.getElementById("severeCount").textContent = severe.length;
+        document.getElementById("minSpeed").textContent = minSpeed === null ? "-" : `${minSpeed.toFixed(1)} km/h`;
+        document.getElementById("latestVehicles").textContent = latest ? latest.vehicle_count : 0;
+        renderSeverity(alerts);
+        renderRoadRank(alerts);
+        renderSpeedTrend();
+        renderTable(alerts.slice(0, 12));
+      }
+
+      function renderSeverity(alerts) {
+        const counts = { severe: 0, moderate: 0, slow: 0 };
+        alerts.forEach((item) => { counts[item.severity] = (counts[item.severity] || 0) + 1; });
+        charts.severity.setOption({
+          color: ["#ef5b5b", "#f4be4f", "#57a6ff"],
+          tooltip: { trigger: "item" },
+          series: [{
+            type: "pie",
+            radius: ["42%", "70%"],
+            data: [
+              { name: "严重", value: counts.severe },
+              { name: "中度", value: counts.moderate },
+              { name: "缓行", value: counts.slow }
+            ]
+          }]
+        });
+      }
+
+      function renderRoadRank(alerts) {
+        const byRoad = new Map();
+        alerts.forEach((item) => {
+          const key = item.road_name || item.road_id;
+          const prev = byRoad.get(key) || { road: key, count: 0, speed: 999 };
+          prev.count += 1;
+          prev.speed = Math.min(prev.speed, Number(item.avg_speed_kmh || 999));
+          byRoad.set(key, prev);
+        });
+        const rows = Array.from(byRoad.values()).sort((a, b) => b.count - a.count || a.speed - b.speed).slice(0, 10).reverse();
+        charts.roads.setOption({
+          color: ["#ef5b5b"],
+          tooltip: {},
+          xAxis: { type: "value" },
+          yAxis: { type: "category", data: rows.map((r) => r.road) },
+          series: [{ name: "告警次数", type: "bar", data: rows.map((r) => r.count) }]
+        });
+      }
+
+      function renderSpeedTrend() {
+        const rows = [...state.speedTrend].reverse();
+        charts.speed.setOption({
+          color: ["#47d18c"],
+          tooltip: { trigger: "axis" },
+          xAxis: { type: "category", data: rows.map((r) => r.label) },
+          yAxis: { type: "value", min: 0 },
+          series: [{ name: "平均速度", type: "line", smooth: true, data: rows.map((r) => r.value) }]
+        });
+      }
+
+      function renderTable(alerts) {
+        document.getElementById("alertRows").innerHTML = alerts.map((item) => `
+          <tr>
+            <td><span class="tag ${item.severity}">${label(item.severity)}</span></td>
+            <td>${item.road_name || ""}</td>
+            <td>${item.district || ""}</td>
+            <td>${Number(item.avg_speed_kmh || 0).toFixed(1)} km/h</td>
+            <td>${(Number(item.avg_occupancy || 0) * 100).toFixed(0)}%</td>
+            <td>${formatTime(item.window_start)} - ${formatTime(item.window_end)}</td>
+          </tr>
+        `).join("");
+      }
+
+      function newestAlert(alerts) {
+        return [...alerts].sort(compareByRecency)[0] || null;
+      }
+
+      function compareByRecency(a, b) {
+        return timestamp(b.window_end) - timestamp(a.window_end) || timestamp(b.window_start) - timestamp(a.window_start);
+      }
+
+      function timestamp(value) {
+        const date = new Date(String(value || "").replace(" ", "T"));
+        return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+      }
+
+      function label(severity) {
+        return severity === "severe" ? "严重" : severity === "moderate" ? "中度" : "缓行";
+      }
+
+      function formatTime(value) {
+        if (!value) return "-";
+        const date = new Date(String(value).replace(" ", "T"));
+        if (Number.isNaN(date.getTime())) return String(value).slice(11, 19);
+        return date.toLocaleTimeString("zh-CN", { hour12: false });
+      }
+
+      function setStatus(connected, text) {
+        document.getElementById("dot").classList.toggle("on", connected);
+        document.getElementById("status").textContent = text;
+      }
+
+      window.addEventListener("resize", () => Object.values(charts).forEach((chart) => chart.resize()));
+      connectWebSocket();
+      pollLatest();
+      setInterval(pollLatest, 3000);
+    </script>
+  </body>
+</html>
