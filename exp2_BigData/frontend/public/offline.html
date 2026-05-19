@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta http-equiv="Cache-Control" content="no-store" />
+    <title>离线交通分析与预测大屏</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #101318;
+        --panel: #171d24;
+        --line: #2d3742;
+        --text: #edf3f7;
+        --muted: #9fb0bf;
+        --red: #ef5b5b;
+        --amber: #f4be4f;
+        --green: #47d18c;
+        --blue: #57a6ff;
+        --violet: #b48cff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: Arial, "Microsoft YaHei", sans-serif;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: end;
+        gap: 18px;
+        padding: 18px 22px 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        letter-spacing: 0;
+      }
+      .sub, .nav, h2 {
+        color: var(--muted);
+      }
+      .sub {
+        margin-top: 5px;
+        font-size: 13px;
+      }
+      .nav {
+        display: flex;
+        gap: 10px;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+      a {
+        color: var(--green);
+        text-decoration: none;
+      }
+      main {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        padding: 12px;
+      }
+      section {
+        min-height: 420px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 12px;
+      }
+      .span2, .span4 { grid-column: span 2; }
+      .overview { min-height: 140px; }
+      h2 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .metric {
+        min-height: 88px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px;
+        background: #121922;
+      }
+      .metric .label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .metric .value {
+        margin-top: 8px;
+        font-size: 24px;
+        font-weight: 700;
+      }
+      .chart {
+        width: 100%;
+        height: 360px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      th, td {
+        padding: 7px 6px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        white-space: nowrap;
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .status {
+        padding: 16px 22px;
+        color: var(--muted);
+      }
+      @media (max-width: 1180px) {
+        .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @media (max-width: 760px) {
+        header { align-items: start; flex-direction: column; }
+        main { grid-template-columns: 1fr; }
+        .span2, .span4 { grid-column: span 1; }
+        section { min-height: 360px; }
+        .chart { height: 300px; }
+        .cards { grid-template-columns: 1fr; }
+        th, td { white-space: normal; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>离线交通分析与预测大屏</h1>
+        <div class="sub">NYC TLC 官方 Yellow Taxi 数据 · Spark 数仓 · 离线分析 · Spark MLlib 需求预测</div>
+      </div>
+      <div class="nav">
+        <a href="/">实时流控大屏</a>
+        <a href="/data/offline_dashboard_data.json">离线数据 JSON</a>
+      </div>
+    </header>
+    <div id="status" class="status">正在加载离线结果...</div>
+    <main id="content" style="visibility:hidden">
+      <section class="span4 overview">
+        <h2>数据与模型概览</h2>
+        <div class="cards">
+          <div class="metric"><div class="label">官方原始记录</div><div id="rawRows" class="value">-</div></div>
+          <div class="metric"><div class="label">Silver 清洗后记录</div><div id="silverRows" class="value">-</div></div>
+          <div class="metric"><div class="label">需求特征样本</div><div id="featureRows" class="value">-</div></div>
+          <div class="metric"><div class="label">最优模型 R2</div><div id="bestR2" class="value">-</div></div>
+        </div>
+      </section>
+
+      <section class="span2"><h2>每小时订单量与收入</h2><div id="hourlyChart" class="chart"></div></section>
+      <section class="span2"><h2>每日订单量与收入趋势</h2><div id="dailyChart" class="chart"></div></section>
+      <section><h2>高峰时段分析</h2><div id="peakChart" class="chart"></div></section>
+      <section><h2>支付方式占比</h2><div id="paymentChart" class="chart"></div></section>
+      <section class="span2"><h2>热点上车区域</h2><div id="hotspotChart" class="chart"></div></section>
+      <section class="span2"><h2>高频 OD 路线</h2><div id="odChart" class="chart"></div></section>
+      <section class="span2"><h2>距离与费用关系</h2><div id="fareDistanceChart" class="chart"></div></section>
+      <section class="span2"><h2>星期与小时订单热力</h2><div id="timeHeatmap" class="chart"></div></section>
+      <section class="span2"><h2>模型评估指标</h2><div id="modelMetricChart" class="chart"></div></section>
+      <section class="span2"><h2>预测值 vs 实际值</h2><div id="predictionChart" class="chart"></div></section>
+
+      <section class="span2">
+        <h2>模型预测明细</h2>
+        <table>
+          <thead><tr><th>日期</th><th>小时</th><th>区域</th><th>实际需求</th><th>预测需求</th></tr></thead>
+          <tbody id="predictionRows"></tbody>
+        </table>
+      </section>
+      <section class="span2">
+        <h2>Gold 表产物</h2>
+        <table>
+          <thead><tr><th>表名</th><th>行数</th><th>字段数</th></tr></thead>
+          <tbody id="manifestRows"></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script>
+      const charts = {};
+
+      async function loadData() {
+        const response = await fetch(`/data/offline_dashboard_data.json?ts=${Date.now()}`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      }
+
+      function initCharts() {
+        [
+          "hourlyChart", "dailyChart", "peakChart", "paymentChart", "hotspotChart", "odChart",
+          "fareDistanceChart", "timeHeatmap", "modelMetricChart", "predictionChart"
+        ].forEach((id) => { charts[id] = echarts.init(document.getElementById(id)); });
+      }
+
+      function render(data) {
+        document.getElementById("status").style.display = "none";
+        document.getElementById("content").style.visibility = "visible";
+        renderCards(data);
+        renderHourly(data.gold.hourly);
+        renderDaily(data.gold.daily);
+        renderPeak(data.analysis.peak_periods);
+        renderPayment(data.gold.payment);
+        renderHotspots(data.gold.hotspots);
+        renderOdRoutes(data.analysis.od_rank);
+        renderFareDistance(data.analysis.fare_distance);
+        renderTimeHeatmap(data.analysis.time_features);
+        renderModelMetrics(data.model.metrics);
+        renderPredictions(data.model.predictions);
+        renderPredictionTable(data.model.predictions);
+        renderManifest(data.quality.gold_manifest);
+      }
+
+      function renderCards(data) {
+        const best = [...data.model.metrics.metrics].sort((a, b) => b.r2 - a.r2)[0];
+        document.getElementById("rawRows").textContent = fmt(data.quality.official_tlc.rows);
+        document.getElementById("silverRows").textContent = fmt(data.quality.silver_quality.after_rows);
+        document.getElementById("featureRows").textContent = fmt(data.quality.gold_manifest.demand_features.rows);
+        document.getElementById("bestR2").textContent = Number(best.r2).toFixed(4);
+      }
+
+      function renderHourly(rows) {
+        charts.hourlyChart.setOption({
+          color: ["#47d18c", "#57a6ff"],
+          tooltip: { trigger: "axis" },
+          legend: { textStyle: { color: "#9fb0bf" } },
+          xAxis: { type: "category", data: rows.map((r) => `${r.pickup_hour}:00`) },
+          yAxis: [{ type: "value" }, { type: "value" }],
+          series: [
+            { name: "订单量", type: "line", smooth: true, data: rows.map((r) => r.trip_count) },
+            { name: "收入", type: "bar", yAxisIndex: 1, data: rows.map((r) => r.revenue) }
+          ]
+        });
+      }
+
+      function renderDaily(rows) {
+        const valid = rows.filter((r) => String(r.pickup_date).startsWith("2024-01"));
+        charts.dailyChart.setOption({
+          color: ["#57a6ff", "#f4be4f"],
+          tooltip: { trigger: "axis" },
+          legend: { textStyle: { color: "#9fb0bf" } },
+          xAxis: { type: "category", data: valid.map((r) => day(r.pickup_date)) },
+          yAxis: [{ type: "value" }, { type: "value" }],
+          series: [
+            { name: "订单量", type: "line", smooth: true, data: valid.map((r) => r.trip_count) },
+            { name: "收入", type: "bar", yAxisIndex: 1, data: valid.map((r) => r.revenue) }
+          ]
+        });
+      }
+
+      function renderPeak(rows) {
+        charts.peakChart.setOption({
+          color: ["#47d18c"],
+          tooltip: { trigger: "axis" },
+          xAxis: { type: "category", data: rows.map((r) => r.period) },
+          yAxis: { type: "value" },
+          series: [{ name: "订单量", type: "bar", data: rows.map((r) => r.trip_count) }]
+        });
+      }
+
+      function renderPayment(rows) {
+        charts.paymentChart.setOption({
+          color: ["#57a6ff", "#47d18c", "#f4be4f", "#ef5b5b"],
+          tooltip: { trigger: "item" },
+          series: [{
+            type: "pie",
+            radius: ["42%", "72%"],
+            data: rows.map((r) => ({ name: labelPayment(r.payment_type), value: r.trip_count }))
+          }]
+        });
+      }
+
+      function renderHotspots(rows) {
+        const top = rows.slice(0, 15).reverse();
+        charts.hotspotChart.setOption({
+          color: ["#ef5b5b"],
+          tooltip: { trigger: "axis" },
+          xAxis: { type: "value" },
+          yAxis: { type: "category", data: top.map((r) => r.pickup_zone) },
+          series: [{ name: "订单量", type: "bar", data: top.map((r) => r.trip_count) }]
+        });
+      }
+
+      function renderOdRoutes(rows) {
+        const top = rows.slice(0, 15).reverse();
+        charts.odChart.setOption({
+          color: ["#b48cff"],
+          tooltip: { trigger: "axis" },
+          xAxis: { type: "value" },
+          yAxis: { type: "category", data: top.map((r) => r.od_pair) },
+          series: [{ name: "订单量", type: "bar", data: top.map((r) => r.trip_count) }]
+        });
+      }
+
+      function renderFareDistance(rows) {
+        const order = ["0-1", "1-3", "3-5", "5-10", "10-20", "20+"];
+        const sorted = [...rows].sort((a, b) => order.indexOf(a.distance_bucket) - order.indexOf(b.distance_bucket));
+        charts.fareDistanceChart.setOption({
+          color: ["#47d18c", "#f4be4f"],
+          tooltip: { trigger: "axis" },
+          legend: { textStyle: { color: "#9fb0bf" } },
+          xAxis: { type: "category", data: sorted.map((r) => r.distance_bucket) },
+          yAxis: { type: "value" },
+          series: [
+            { name: "平均车费", type: "bar", data: sorted.map((r) => r.avg_fare) },
+            { name: "平均总费用", type: "line", smooth: true, data: sorted.map((r) => r.avg_total) }
+          ]
+        });
+      }
+
+      function renderTimeHeatmap(rows) {
+        const data = rows.map((r) => [r.pickup_hour, r.pickup_weekday, r.trip_count]);
+        charts.timeHeatmap.setOption({
+          color: ["#57a6ff"],
+          tooltip: { position: "top" },
+          xAxis: { type: "category", data: Array.from({ length: 24 }, (_, i) => `${i}`) },
+          yAxis: { type: "category", data: ["周一", "周二", "周三", "周四", "周五", "周六", "周日"] },
+          visualMap: { min: 0, max: Math.max(...rows.map((r) => r.trip_count)), calculable: true, orient: "horizontal", left: "center", bottom: 0, textStyle: { color: "#9fb0bf" } },
+          series: [{ name: "订单量", type: "heatmap", data }]
+        });
+      }
+
+      function renderModelMetrics(metrics) {
+        const rows = metrics.metrics;
+        charts.modelMetricChart.setOption({
+          color: ["#ef5b5b", "#f4be4f", "#47d18c"],
+          tooltip: { trigger: "axis" },
+          legend: { textStyle: { color: "#9fb0bf" } },
+          xAxis: { type: "category", data: rows.map((r) => modelName(r.model)) },
+          yAxis: { type: "value" },
+          series: [
+            { name: "RMSE", type: "bar", data: rows.map((r) => r.rmse) },
+            { name: "MAE", type: "bar", data: rows.map((r) => r.mae) },
+            { name: "R2", type: "line", data: rows.map((r) => r.r2) }
+          ]
+        });
+      }
+
+      function renderPredictions(rows) {
+        const sample = rows.slice(0, 120);
+        charts.predictionChart.setOption({
+          color: ["#57a6ff", "#47d18c"],
+          tooltip: { trigger: "axis" },
+          legend: { textStyle: { color: "#9fb0bf" } },
+          xAxis: { type: "category", data: sample.map((r, i) => `${r.pickup_zone}-${i + 1}`), axisLabel: { show: false } },
+          yAxis: { type: "value" },
+          series: [
+            { name: "实际需求", type: "line", smooth: true, data: sample.map((r) => Number(r.demand)) },
+            { name: "预测需求", type: "line", smooth: true, data: sample.map((r) => Number(r.improved_prediction).toFixed(2)) }
+          ]
+        });
+      }
+
+      function renderPredictionTable(rows) {
+        document.getElementById("predictionRows").innerHTML = rows.slice(0, 12).map((r) => `
+          <tr>
+            <td>${day(r.pickup_date)}</td>
+            <td>${r.pickup_hour}</td>
+            <td>${r.pickup_zone}</td>
+            <td>${r.demand}</td>
+            <td>${Number(r.improved_prediction).toFixed(2)}</td>
+          </tr>
+        `).join("");
+      }
+
+      function renderManifest(manifest) {
+        document.getElementById("manifestRows").innerHTML = Object.entries(manifest).map(([name, info]) => `
+          <tr><td>${name}</td><td>${fmt(info.rows)}</td><td>${info.columns.length}</td></tr>
+        `).join("");
+      }
+
+      function fmt(value) {
+        return Number(value || 0).toLocaleString("zh-CN");
+      }
+
+      function day(value) {
+        return String(value || "").slice(0, 10);
+      }
+
+      function labelPayment(value) {
+        return { credit_card: "信用卡", cash: "现金", dispute: "争议", no_charge: "免付" }[value] || value;
+      }
+
+      function modelName(value) {
+        return value === "linear_regression_baseline" ? "线性回归基线" : value === "random_forest_regressor" ? "随机森林" : value;
+      }
+
+      window.addEventListener("resize", () => Object.values(charts).forEach((chart) => chart.resize()));
+      loadData().then((data) => {
+        document.getElementById("content").style.visibility = "visible";
+        requestAnimationFrame(() => {
+          initCharts();
+          render(data);
+          Object.values(charts).forEach((chart) => chart.resize());
+        });
+      }).catch((error) => {
+        document.getElementById("status").textContent = `离线结果加载失败：${error.message}`;
+      });
+    </script>
+  </body>
+</html>

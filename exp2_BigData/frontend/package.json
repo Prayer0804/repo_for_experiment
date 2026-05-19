@@ -1,0 +1,11 @@
+{
+  "name": "traffic-bigdata-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "serve": "python -m http.server 8080 -d public"
+  },
+  "dependencies": {
+    "echarts": "^5.5.1"
+  }
+}

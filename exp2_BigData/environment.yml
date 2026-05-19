@@ -1,0 +1,19 @@
+name: traffic-bigdata
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12
+  - pandas>=2.2
+  - pyarrow>=16
+  - scikit-learn>=1.5
+  - pyyaml>=6
+  - pytest>=8
+  - requests>=2.32
+  - joblib>=1.4
+  - pip
+  - pip:
+      - pyspark==3.5.3
+      - kafka-python-ng==2.2.3
+      - fastapi==0.115.6
+      - uvicorn[standard]==0.34.0

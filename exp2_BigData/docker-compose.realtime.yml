@@ -1,0 +1,106 @@
+services:
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: traffic-kafka
+    ports:
+      - "19092:19092"
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=controller,broker
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:19092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - CLUSTER_ID=traffic-bigdata-kraft-cluster-001
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  kafka-init:
+    image: apache/kafka:3.7.0
+    container_name: traffic-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command:
+      - bash
+      - -lc
+      - |
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic traffic-events --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic congestion-alerts --partitions 3 --replication-factor 1
+
+  jobmanager:
+    build:
+      context: .
+      dockerfile: docker/flink/Dockerfile
+    container_name: traffic-flink-jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+      - JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  taskmanager:
+    build:
+      context: .
+      dockerfile: docker/flink/Dockerfile
+    container_name: traffic-flink-taskmanager
+    command: taskmanager
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=jobmanager
+      - TASK_MANAGER_NUMBER_OF_TASK_SLOTS=4
+      - JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8
+    depends_on:
+      - jobmanager
+
+  flink-sql-client:
+    build:
+      context: .
+      dockerfile: docker/flink/Dockerfile
+    container_name: traffic-flink-sql-client
+    depends_on:
+      - jobmanager
+      - taskmanager
+    environment:
+      - JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8
+    command:
+      - bash
+      - -lc
+      - |
+        sleep 20
+        /opt/flink/bin/sql-client.sh -Dexecution.target=remote -Drest.address=jobmanager -Drest.port=8081 -f /opt/flink/usrlib/traffic_congestion.sql
+
+  realtime-api:
+    build:
+      context: .
+      dockerfile: docker/realtime-api/Dockerfile
+    container_name: traffic-realtime-api
+    ports:
+      - "8000:8000"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVER=kafka:9092
+      - CONGESTION_ALERT_TOPIC=congestion-alerts
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+
+  dashboard:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: traffic-dashboard
+    ports:
+      - "8080:80"
+    depends_on:
+      - realtime-api

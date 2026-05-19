@@ -1,0 +1,53 @@
+project:
+  name: 基于交通大数据的处理与分析
+  seed: 20260509
+  sample_rows: 6000
+
+paths:
+  raw_dir: data/raw
+  official_raw_dir: data/raw/official
+  sample_dir: data/sample
+  bronze_dir: data/bronze
+  silver_dir: data/silver
+  gold_dir: data/gold
+  reports_dir: outputs/reports
+  charts_dir: outputs/charts
+  metrics_dir: outputs/metrics
+  frontend_data_dir: frontend/public/data
+
+data:
+  mock_file: data/sample/tlc_mock_trips.csv
+  official_file: data/raw/official/yellow_tripdata_2024-01.parquet
+  official_metadata_file: outputs/reports/official_tlc_metadata.json
+  raw_file: data/raw/official/yellow_tripdata_2024-01.parquet
+  bronze_file: data/bronze/tlc_trips_bronze.parquet
+  silver_file: data/silver/tlc_trips_silver.parquet
+
+quality:
+  max_trip_distance: 80
+  max_fare_amount: 400
+  max_duration_min: 360
+  max_passenger_count: 8
+
+download:
+  base_url: https://d37ci6vzurychx.cloudfront.net/trip-data
+  taxi_type: yellow
+  year: 2024
+  month: 1
+  require_official: true
+
+spark:
+  app_name: traffic-bigdata-official-tlc
+  master: local[*]
+  shuffle_partitions: 8
+
+realtime:
+  kafka_bootstrap_host: localhost:19092
+  kafka_bootstrap_docker: kafka:9092
+  traffic_events_topic: traffic-events
+  congestion_alerts_topic: congestion-alerts
+  producer_seed: 20260509
+  events_per_second: 25
+  severe_speed_threshold_kmh: 12
+  sliding_window_seconds: 60
+  sliding_step_seconds: 10
